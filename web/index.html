@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hello Docling Graph</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --border: #e2e2e0;
+    --accent: #3b5bdb; --edge: #9a9aa2;
+    --c-Company: #3b5bdb; --c-Person: #2f9e44; --c-Product: #e8590c; --c-Location: #ae3ec9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --panel: #1d1d20; --text: #ececf0; --muted: #9a9aa2; --border: #2e2e33;
+      --accent: #748ffc; --edge: #6b6b73;
+      --c-Company: #748ffc; --c-Person: #51cf66; --c-Product: #ff922b; --c-Location: #da77f2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header, main { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+  header { padding-top: 32px; }
+  h1 { margin: 0 0 4px; font-size: 26px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px;
+           border: 1px solid var(--border); background: var(--panel); margin-left: 6px; }
+  .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  #cy { height: 520px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; margin: 0;
+        max-height: 260px; overflow: auto; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+  dt { color: var(--muted); } dd { margin: 0; word-break: break-word; }
+  ul.links { margin: 0; padding-left: 18px; }
+  a { color: var(--accent); }
+  .steps { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 20px; font-size: 14px; }
+  .steps span.s { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; }
+  footer { color: var(--muted); font-size: 13px; padding: 24px 16px 40px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hello, Docling Graph 👋</h1>
+  <p class="sub">A small Markdown fact sheet, turned into a knowledge graph by
+    <a href="https://github.com/docling-project/docling-graph">docling-graph</a>,
+    built by GitHub Actions and published on GitHub Pages.
+    <span class="badge" id="mode">…</span></p>
+  <div class="steps">
+    <span class="s">📄 hello_world.md</span>→
+    <span class="s">Docling conversion</span>→
+    <span class="s">LLM extraction into Pydantic template</span>→
+    <span class="s">NetworkX graph</span>→
+    <span class="s">CSV · JSON · HTML</span>
+  </div>
+</header>
+<main>
+  <div class="grid">
+    <section class="card">
+      <h2>Knowledge graph</h2>
+      <div id="cy" role="img" aria-label="Knowledge graph of Hello World Ltd."></div>
+      <div class="legend" id="legend"></div>
+    </section>
+    <div style="display:grid; gap:16px; align-content:start; min-width:0">
+      <section class="card">
+        <h2>Selected node</h2>
+        <dl id="details"><dt>Tip</dt><dd>Click a node to see its attributes.</dd></dl>
+      </section>
+      <section class="card">
+        <h2>Raw outputs</h2>
+        <ul class="links">
+          <li><a href="output/docling_graph/graph.json">graph.json</a></li>
+          <li><a href="output/docling_graph/nodes.csv">nodes.csv</a> · <a href="output/docling_graph/edges.csv">edges.csv</a></li>
+          <li><a href="output/docling_graph/report.md">report.md</a></li>
+          <li><a href="output/docling_graph/graph.html">graph.html</a> (docling-graph's own viewer)</li>
+          <li><a href="output/metadata.json">metadata.json</a></li>
+        </ul>
+      </section>
+    </div>
+  </div>
+  <section class="card" style="margin-top:16px">
+    <h2>Source document</h2>
+    <pre id="source">Loading…</pre>
+  </section>
+</main>
+<footer>Generated on every push by <code>.github/workflows/pages.yml</code>.</footer>
+<script>
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const nameOf = (n) => n.name || (n.city ? `${n.city}, ${n.country}` : n.label);
+  // Lay nodes out in tiers: Company on top, then Location/Product, then Person (unknown classes last).
+  const TIER = { Company: 0, Location: 1, Product: 1, Person: 2 };
+  function tierPositions(nodes) {
+    const rows = {};
+    nodes.forEach(n => { const t = TIER[n.__class__ || n.label] ?? 3; (rows[t] ||= []).push(n.id); });
+    const pos = {};
+    Object.entries(rows).forEach(([t, ids]) =>
+      ids.forEach((id, i) => { pos[id] = { x: (i - (ids.length - 1) / 2) * 150, y: t * 140 }; }));
+    return pos;
+  }
+  const HIDDEN = new Set(["id", "label", "type", "__class__", "__provenance__"]);
+
+  fetch("hello_world.md").then(r => r.text()).then(t => { document.getElementById("source").textContent = t; });
+  fetch("summary.json").then(r => r.json()).then(s => {
+    document.getElementById("mode").textContent =
+      `${s.nodes} nodes · ${s.edges} edges · ${s.mode === "mock" ? "offline mock LLM" : "LLM: " + s.mode}`;
+  }).catch(() => {});
+
+  fetch("output/docling_graph/graph.json").then(r => r.json()).then(g => {
+    const classes = [...new Set(g.nodes.map(n => n.__class__ || n.label))];
+    const color = (c) => css(`--c-${c}`) || css("--accent");
+    const elements = [
+      ...g.nodes.map(n => ({ data: { ...n, id: n.id, cls: n.__class__ || n.label, display: nameOf(n) } })),
+      ...(g.edges || g.links || []).map((e, i) => ({ data: { id: `e${i}`, source: e.source, target: e.target, label: e.label } })),
+    ];
+    const cy = cytoscape({
+      container: document.getElementById("cy"),
+      elements,
+      layout: { name: "preset", padding: 40, positions: tierPositions(g.nodes) },
+      style: [
+        { selector: "node", style: {
+            "background-color": (n) => color(n.data("cls")), label: "data(display)",
+            color: css("--text"), "font-size": 12, "text-valign": "bottom", "text-margin-y": 6,
+            width: 34, height: 34, "border-width": 2, "border-color": css("--panel") } },
+        { selector: "node:selected", style: { "border-color": css("--text"), "border-width": 3 } },
+        { selector: "edge", style: {
+            width: 1.5, "line-color": css("--edge"), "target-arrow-color": css("--edge"),
+            "target-arrow-shape": "triangle", "curve-style": "bezier", label: "data(label)",
+            "font-size": 9, color: css("--muted"), "text-rotation": "autorotate",
+            "text-background-color": css("--panel"), "text-background-opacity": 1, "text-background-padding": 2 } },
+      ],
+    });
+    cy.on("tap", "node", (evt) => {
+      const d = evt.target.data();
+      const dl = document.getElementById("details");
+      dl.innerHTML = "";
+      const add = (k, v) => {
+        const dt = document.createElement("dt"); dt.textContent = k;
+        const dd = document.createElement("dd"); dd.textContent = v;
+        dl.append(dt, dd);
+      };
+      add("class", d.cls);
+      Object.entries(d).filter(([k, v]) => !HIDDEN.has(k) && !["cls", "display"].includes(k) && v !== null && v !== "")
+        .forEach(([k, v]) => add(k, typeof v === "object" ? JSON.stringify(v) : v));
+      if (d.__provenance__) add("provenance", `${d.__provenance__.match} match`);
+    });
+    document.getElementById("legend").innerHTML = classes
+      .map(c => `<span><span class="dot" style="background:${color(c)}"></span>${c}</span>`).join("");
+  });
+</script>
+</body>
+</html>
